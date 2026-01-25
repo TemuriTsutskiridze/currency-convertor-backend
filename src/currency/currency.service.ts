@@ -77,18 +77,76 @@ export class CurrencyService {
       );
     }
 
-    const rateEntry = rates.find(
+    if (fromCode === toCode) {
+      return 1;
+    }
+
+    let rateEntry = rates.find(
       (rate) =>
         rate.currencyCodeA === fromCode && rate.currencyCodeB === toCode,
     );
 
-    if (!rateEntry) {
-      throw new HttpException(
-        'Exchange rate not found for the given currency pair',
-        HttpStatus.NOT_FOUND,
+    if (rateEntry) {
+      return (
+        rateEntry.rateSell || rateEntry.rateBuy || rateEntry.rateCross || 0
       );
     }
 
-    return rateEntry.rateBuy || 0;
+    rateEntry = rates.find(
+      (rate) =>
+        rate.currencyCodeA === toCode && rate.currencyCodeB === fromCode,
+    );
+
+    if (rateEntry) {
+      const rate =
+        rateEntry.rateBuy || rateEntry.rateSell || rateEntry.rateCross;
+      return rate ? 1 / rate : 0;
+    }
+
+    const UAH_CODE = 980;
+    if (fromCode !== UAH_CODE && toCode !== UAH_CODE) {
+      const fromToUAH = this.getRateToUAH(rates, fromCode);
+      const toToUAH = this.getRateToUAH(rates, toCode);
+
+      if (fromToUAH && toToUAH) {
+        return fromToUAH / toToUAH;
+      }
+    }
+
+    throw new HttpException(
+      `Exchange rate not available for ${from} to ${to}`,
+      HttpStatus.NOT_FOUND,
+    );
+  }
+
+  private getRateToUAH(
+    rates: ExchangeRate[],
+    currencyCode: number,
+  ): number | null {
+    const UAH_CODE = 980;
+
+    let rateEntry = rates.find(
+      (rate) =>
+        rate.currencyCodeA === currencyCode && rate.currencyCodeB === UAH_CODE,
+    );
+
+    if (rateEntry) {
+      return (
+        rateEntry.rateSell || rateEntry.rateBuy || rateEntry.rateCross || null
+      );
+    }
+
+    rateEntry = rates.find(
+      (rate) =>
+        rate.currencyCodeA === UAH_CODE && rate.currencyCodeB === currencyCode,
+    );
+
+    if (rateEntry) {
+      const rate =
+        rateEntry.rateBuy || rateEntry.rateSell || rateEntry.rateCross;
+      return rate ? 1 / rate : null;
+    }
+
+    return null;
   }
 }

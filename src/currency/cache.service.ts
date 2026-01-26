@@ -8,11 +8,15 @@ export class CacheService {
   constructor() {
     this.client = createClient({
       socket: {
-        host: 'localhost',
-        port: 6379,
+        host: process.env.REDIS_HOST || 'localhost',
+        port: Number(process.env.REDIS_PORT || 6379),
       },
+      password: process.env.REDIS_PASSWORD || undefined,
+      database: Number(process.env.REDIS_DB || 0),
     });
-    this.client.connect();
+    this.client.connect().catch((error) => {
+      console.log(error);
+    });
   }
 
   async get(key: string) {

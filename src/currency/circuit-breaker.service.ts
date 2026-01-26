@@ -24,6 +24,15 @@ type CircuitBreakerConstructor = new (
   options: CircuitBreakerOptions,
 ) => CircuitBreakerInstance;
 
+const getEnvNumber = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value.trim() === '') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 @Injectable()
 export class CircuitBreakerService {
   private readonly logger = new Logger(CircuitBreakerService.name);
@@ -35,16 +44,25 @@ export class CircuitBreakerService {
 
   private initializeCircuitBreaker() {
     const options: CircuitBreakerOptions = {
-      timeout: 10000,
-      errorThresholdPercentage: 50,
-      resetTimeout: 30000,
-      rollingCountTimeout: 60000,
-      rollingCountBuckets: 10,
-      volumeThreshold: 5,
+      timeout: getEnvNumber(process.env.CB_TIMEOUT_MS, 10000),
+      errorThresholdPercentage: getEnvNumber(
+        process.env.CB_ERROR_THRESHOLD_PERCENT,
+        50,
+      ),
+      resetTimeout: getEnvNumber(process.env.CB_RESET_TIMEOUT_MS, 30000),
+      rollingCountTimeout: getEnvNumber(
+        process.env.CB_ROLLING_COUNT_TIMEOUT_MS,
+        60000,
+      ),
+      rollingCountBuckets: getEnvNumber(
+        process.env.CB_ROLLING_COUNT_BUCKETS,
+        10,
+      ),
+      volumeThreshold: getEnvNumber(process.env.CB_VOLUME_THRESHOLD, 5),
     };
 
-    const CircuitBreakerCtor = Opossum as unknown as CircuitBreakerConstructor;
-    this.circuitBreaker = new CircuitBreakerCtor(
+    const CircuitBreakerClass = Opossum as unknown as CircuitBreakerConstructor;
+    this.circuitBreaker = new CircuitBreakerClass(
       (requestFunction) => this.executeRequest(requestFunction),
       options,
     );

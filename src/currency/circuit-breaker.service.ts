@@ -20,30 +20,23 @@ export class CircuitBreakerService {
       volumeThreshold: 5,
     };
 
-    // TODO: fix ts errors later
-
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
     this.circuitBreaker = new CircuitBreaker(
       this.executeRequest.bind(this),
       options,
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this.circuitBreaker.on('open', () => {
       this.logger.warn('Circuit breaker is open');
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this.circuitBreaker.on('halfOpen', () => {
       this.logger.log('Circuit breaker is half-open');
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this.circuitBreaker.on('close', () => {
       this.logger.log('Circuit breaker is closed');
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this.circuitBreaker.on('reject', () => {
       this.logger.warn('Circuit breaker rejected request');
     });
@@ -58,16 +51,13 @@ export class CircuitBreakerService {
   public executeWithCircuitBreaker<T>(
     requestFunction: () => Promise<T>,
   ): Promise<T> {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
     return this.circuitBreaker.fire(requestFunction);
   }
 
   getCircuitState(): string {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     return this.circuitBreaker.opened
       ? 'OPEN'
-      : // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        this.circuitBreaker.halfOpen
+      : this.circuitBreaker.halfOpen
         ? 'HALF_OPEN'
         : 'CLOSED';
   }
@@ -75,11 +65,8 @@ export class CircuitBreakerService {
   getStats() {
     return {
       state: this.getCircuitState(),
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       failures: this.circuitBreaker.stats.failures,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       successes: this.circuitBreaker.stats.successes,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       rejects: this.circuitBreaker.stats.rejects,
     };
   }

@@ -12,8 +12,8 @@ export class CacheRepository implements ExchangeRateRepository {
   constructor(private readonly cacheService: CacheService) {}
 
   async getRates(): Promise<ExchangeRate[] | null> {
-    const data = await this.cacheService.get(this.cacheKey);
-    return data ? JSON.parse(data) : null;
+    const data = (await this.cacheService.get(this.cacheKey)) as string | null;
+    return data ? (JSON.parse(data) as ExchangeRate[]) : null;
   }
 
   async saveRates(rates: ExchangeRate[]): Promise<void> {

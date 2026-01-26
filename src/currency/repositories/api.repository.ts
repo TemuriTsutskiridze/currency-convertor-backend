@@ -25,9 +25,9 @@ export class ApiRepository implements ExchangeRateRepository {
         .pipe(
           retry({
             count: this.MAX_RETRIES,
-            delay: (error, retryCount) => {
+            delay: (error: any, retryCount: number) => {
               if (!this.errorHandlingService.isRetryableError(error)) {
-                return throwError(() => error);
+                return throwError(() => error as AxiosError);
               }
 
               const delay = this.errorHandlingService.getRetryDelay(retryCount);
@@ -45,7 +45,7 @@ export class ApiRepository implements ExchangeRateRepository {
     ).then((response) => response.data);
   }
 
-  saveRates(rates: ExchangeRate[]): void {
+  saveRates(): Promise<void> {
     throw new Error('Cannot save to API repository');
   }
 }

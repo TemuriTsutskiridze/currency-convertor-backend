@@ -54,6 +54,7 @@ export class CurrencyService {
       return fresh;
     } catch (error) {
       if (this.circuitBreakerService.getCircuitState() === 'OPEN') {
+        console.log(error);
         throw new HttpException(
           'Service temporarily unavailable',
           HttpStatus.SERVICE_UNAVAILABLE,

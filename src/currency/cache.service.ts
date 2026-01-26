@@ -3,7 +3,7 @@ import { createClient } from 'redis';
 
 @Injectable()
 export class CacheService {
-  private client;
+  private client: ReturnType<typeof createClient>;
 
   constructor() {
     this.client = createClient({

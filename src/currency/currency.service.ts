@@ -34,15 +34,12 @@ export class CurrencyService {
   async convertCurrency(
     convertDto: ConvertCurrencyDto,
   ): Promise<CurrencyResponseDto> {
-    const rates: ExchangeRate[] = await this.getExchangeRates();
-    // console.log(rates);
-    const rate = this.getExchangeRate(
+    const rates = await this.getRates();
+    const rate = this.calculateRate(
       rates,
       convertDto.sourceCurrency,
       convertDto.targetCurrency,
     );
-
-    console.log(rate);
 
     return {
       sourceCurrency: convertDto.sourceCurrency,
@@ -54,18 +51,31 @@ export class CurrencyService {
     };
   }
 
-  private async getExchangeRates(): Promise<ExchangeRate[]> {
-    const cached = await this.cacheService.get('exchange_rates');
+  private async getRates(): Promise<ExchangeRate[]> {
+    const cached = await this.getCachedRates();
     if (cached) {
-      return JSON.parse(cached);
+      return cached;
     }
 
+    const fresh = await this.getApiRates();
+    await this.saveToCache(fresh);
+    return fresh;
+  }
+
+  private async getCachedRates(): Promise<ExchangeRate[] | null> {
+    const data = await this.cacheService.get('exchange_rates');
+    return data ? JSON.parse(data) : null;
+  }
+
+  private async saveToCache(rates: ExchangeRate[]): Promise<void> {
+    await this.cacheService.set('exchange_rates', JSON.stringify(rates), 300);
+  }
+
+  private async getApiRates(): Promise<ExchangeRate[]> {
     try {
-      const rates = await this.circuitBreakerService.executeWithCircuitBreaker(
-        () => this.fetchRatesWithRetry(),
+      return await this.circuitBreakerService.executeWithCircuitBreaker(() =>
+        this.fetchWithRetry(),
       );
-      await this.cacheService.set('exchange_rates', JSON.stringify(rates), 300);
-      return rates;
     } catch (error) {
       this.errorHandlingService.logError(
         error as AxiosError,
@@ -74,7 +84,7 @@ export class CurrencyService {
 
       if (this.circuitBreakerService.getCircuitState() === 'OPEN') {
         throw new HttpException(
-          'Service is temporarily unavailable, please try again later...',
+          'Service temporarily unavailable',
           HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
@@ -86,7 +96,7 @@ export class CurrencyService {
     }
   }
 
-  private async fetchRatesWithRetry(): Promise<ExchangeRate[]> {
+  private async fetchWithRetry(): Promise<ExchangeRate[]> {
     return firstValueFrom(
       this.httpService
         .get<ExchangeRate[]>('https://api.monobank.ua/bank/currency')
@@ -100,20 +110,20 @@ export class CurrencyService {
 
               const delay = this.errorHandlingService.getRetryDelay(retryCount);
               this.logger.warn(
-                `Retrying request... Attempt #${retryCount} in ${delay}ms`,
+                `Retry ${retryCount + 1}/${this.MAX_RETRIES} in ${delay}ms`,
               );
               return timer(delay);
             },
           }),
           catchError((error: AxiosError) => {
-            this.errorHandlingService.logError(error, 'Fetch exchange rates');
+            this.errorHandlingService.logError(error, 'API request failed');
             return throwError(() => error);
           }),
         ),
     ).then((response) => response.data);
   }
 
-  private getExchangeRate(
+  private calculateRate(
     rates: ExchangeRate[],
     from: string,
     to: string,
@@ -121,7 +131,7 @@ export class CurrencyService {
     const fromCode = this.currencyCodesService.getNumericCode(from);
     const toCode = this.currencyCodesService.getNumericCode(to);
 
-    if (fromCode === null || toCode === null) {
+    if (!fromCode || !toCode) {
       throw new HttpException(
         'Unsupported currency code',
         HttpStatus.BAD_REQUEST,
@@ -132,37 +142,14 @@ export class CurrencyService {
       return 1;
     }
 
-    let rateEntry = rates.find(
-      (rate) =>
-        rate.currencyCodeA === fromCode && rate.currencyCodeB === toCode,
-    );
+    let rate = this.getDirectRate(rates, fromCode, toCode);
+    if (rate) return rate;
 
-    if (rateEntry) {
-      return (
-        rateEntry.rateSell || rateEntry.rateBuy || rateEntry.rateCross || 0
-      );
-    }
+    rate = this.getReverseRate(rates, fromCode, toCode);
+    if (rate) return rate;
 
-    rateEntry = rates.find(
-      (rate) =>
-        rate.currencyCodeA === toCode && rate.currencyCodeB === fromCode,
-    );
-
-    if (rateEntry) {
-      const rate =
-        rateEntry.rateBuy || rateEntry.rateSell || rateEntry.rateCross;
-      return rate ? 1 / rate : 0;
-    }
-
-    const UAH_CODE = 980;
-    if (fromCode !== UAH_CODE && toCode !== UAH_CODE) {
-      const fromToUAH = this.getRateToUAH(rates, fromCode);
-      const toToUAH = this.getRateToUAH(rates, toCode);
-
-      if (fromToUAH && toToUAH) {
-        return fromToUAH / toToUAH;
-      }
-    }
+    rate = this.getCrossRate(rates, fromCode, toCode);
+    if (rate) return rate;
 
     throw new HttpException(
       `Exchange rate not available for ${from} to ${to}`,
@@ -170,34 +157,67 @@ export class CurrencyService {
     );
   }
 
-  private getRateToUAH(
+  private getDirectRate(
     rates: ExchangeRate[],
-    currencyCode: number,
-  ): number | null {
-    const UAH_CODE = 980;
-
-    let rateEntry = rates.find(
-      (rate) =>
-        rate.currencyCodeA === currencyCode && rate.currencyCodeB === UAH_CODE,
+    fromCode: number,
+    toCode: number,
+  ): number {
+    const entry = rates.find(
+      (r) => r.currencyCodeA === fromCode && r.currencyCodeB === toCode,
     );
+    if (entry) {
+      return entry.rateSell || entry.rateBuy || entry.rateCross || 0;
+    }
+    return 0;
+  }
 
-    if (rateEntry) {
-      return (
-        rateEntry.rateSell || rateEntry.rateBuy || rateEntry.rateCross || null
-      );
+  private getReverseRate(
+    rates: ExchangeRate[],
+    fromCode: number,
+    toCode: number,
+  ): number {
+    const entry = rates.find(
+      (r) => r.currencyCodeA === toCode && r.currencyCodeB === fromCode,
+    );
+    if (entry) {
+      const rate = entry.rateBuy || entry.rateSell || entry.rateCross;
+      return rate ? 1 / rate : 0;
+    }
+    return 0;
+  }
+
+  private getCrossRate(
+    rates: ExchangeRate[],
+    fromCode: number,
+    toCode: number,
+  ): number {
+    const UAH = 980;
+    if (fromCode === UAH || toCode === UAH) return 0;
+
+    const fromToUah = this.getUahRate(rates, fromCode);
+    const toToUah = this.getUahRate(rates, toCode);
+
+    return fromToUah && toToUah ? fromToUah / toToUah : 0;
+  }
+
+  private getUahRate(rates: ExchangeRate[], code: number): number {
+    const UAH = 980;
+
+    let entry = rates.find(
+      (r) => r.currencyCodeA === code && r.currencyCodeB === UAH,
+    );
+    if (entry) {
+      return entry.rateSell || entry.rateBuy || entry.rateCross || 0;
     }
 
-    rateEntry = rates.find(
-      (rate) =>
-        rate.currencyCodeA === UAH_CODE && rate.currencyCodeB === currencyCode,
+    entry = rates.find(
+      (r) => r.currencyCodeA === UAH && r.currencyCodeB === code,
     );
-
-    if (rateEntry) {
-      const rate =
-        rateEntry.rateBuy || rateEntry.rateSell || rateEntry.rateCross;
-      return rate ? 1 / rate : null;
+    if (entry) {
+      const rate = entry.rateBuy || entry.rateSell || entry.rateCross;
+      return rate ? 1 / rate : 0;
     }
 
-    return null;
+    return 0;
   }
 }

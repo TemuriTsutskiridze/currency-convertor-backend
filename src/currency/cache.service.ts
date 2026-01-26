@@ -7,8 +7,10 @@ export class CacheService {
 
   constructor() {
     this.client = createClient({
-      host: 'localhost',
-      port: 6379,
+      socket: {
+        host: 'localhost',
+        port: 6379,
+      },
     });
     this.client.connect();
   }
@@ -28,4 +30,10 @@ export class CacheService {
       console.log(error);
     }
   }
+
+  //   async test() {
+  //     await this.set('test', 'temo', 60);
+  //     const result = await this.get('test');
+  //     return result;
+  //   }
 }

@@ -1,13 +1,13 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
-import { AxiosResponse, AxiosError } from 'axios';
+import { AxiosError } from 'axios';
 import { firstValueFrom, retry, catchError, throwError, timer } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
 import { CurrencyCodesService } from './currency-codes.service';
 import { ConvertCurrencyDto } from './dto/convert-currency.dto';
 import { CurrencyResponseDto } from './dto/currency-response.dto';
 import { ErrorHandlingService } from './error-handling.service';
 import { CircuitBreakerService } from './circuit-breaker.service';
+import { CacheService } from './cache.service';
 
 interface ExchangeRate {
   currencyCodeA: number;
@@ -28,6 +28,7 @@ export class CurrencyService {
     private readonly currencyCodesService: CurrencyCodesService,
     private readonly circuitBreakerService: CircuitBreakerService,
     private readonly errorHandlingService: ErrorHandlingService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async convertCurrency(
@@ -54,10 +55,17 @@ export class CurrencyService {
   }
 
   private async getExchangeRates(): Promise<ExchangeRate[]> {
+    const cached = await this.cacheService.get('exchange_rates');
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
     try {
-      return await this.circuitBreakerService.executeWithCircuitBreaker(() =>
-        this.fetchRatesWithRetry(),
+      const rates = await this.circuitBreakerService.executeWithCircuitBreaker(
+        () => this.fetchRatesWithRetry(),
       );
+      await this.cacheService.set('exchange_rates', JSON.stringify(rates), 300);
+      return rates;
     } catch (error) {
       this.errorHandlingService.logError(
         error as AxiosError,

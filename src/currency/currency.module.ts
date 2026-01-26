@@ -5,6 +5,7 @@ import { CurrencyController } from './currency.controller';
 import { CurrencyCodesService } from './currency-codes.service';
 import { ErrorHandlingService } from './error-handling.service';
 import { CircuitBreakerService } from './circuit-breaker.service';
+import { CacheService } from './cache.service';
 
 @Module({
   imports: [HttpModule],
@@ -14,6 +15,7 @@ import { CircuitBreakerService } from './circuit-breaker.service';
     CurrencyCodesService,
     ErrorHandlingService,
     CircuitBreakerService,
+    CacheService,
   ],
 })
 export class CurrencyModule {}

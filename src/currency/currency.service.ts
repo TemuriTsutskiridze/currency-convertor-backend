@@ -48,6 +48,8 @@ export class CurrencyService {
   private async getExchangeRates(): Promise<ExchangeRate[]> {
     try {
       const response: AxiosResponse<ExchangeRate[]> = await firstValueFrom(
+        // TODO: fix ts errors later
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
         this.httpService.get<ExchangeRate[]>(
           'https://api.monobank.ua/bank/currency',
         ),

@@ -26,6 +26,7 @@ npm i
 
 4. create env.example file and insert this variables
 
+```env
 PORT=3000
 
 REDIS_HOST=redis
@@ -41,8 +42,9 @@ CB_RESET_TIMEOUT_MS=30000
 CB_ROLLING_COUNT_TIMEOUT_MS=60000
 CB_ROLLING_COUNT_BUCKETS=10
 CB_VOLUME_THRESHOLD=5
+```
 
-5. Easy setup ith docker
+5. Easy setup with docker
 
 ```
 docker compose up --build

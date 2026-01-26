@@ -1,17 +1,40 @@
 import { Injectable, Logger } from '@nestjs/common';
-import CircuitBreaker from 'opossum';
+import Opossum from 'opossum';
+
+type CircuitBreakerEvent = 'open' | 'halfOpen' | 'close' | 'reject';
+
+interface CircuitBreakerOptions {
+  timeout: number;
+  errorThresholdPercentage: number;
+  resetTimeout: number;
+  rollingCountTimeout: number;
+  rollingCountBuckets: number;
+  volumeThreshold: number;
+}
+
+interface CircuitBreakerInstance {
+  on(event: CircuitBreakerEvent, handler: () => void): void;
+  fire<T>(action: () => Promise<T>): Promise<T>;
+  opened: boolean;
+  halfOpen: boolean;
+}
+
+type CircuitBreakerConstructor = new (
+  action: (requestFunction: () => Promise<unknown>) => Promise<unknown>,
+  options: CircuitBreakerOptions,
+) => CircuitBreakerInstance;
 
 @Injectable()
 export class CircuitBreakerService {
   private readonly logger = new Logger(CircuitBreakerService.name);
-  private circuitBreaker: CircuitBreaker<any[], any>;
+  private circuitBreaker: CircuitBreakerInstance;
 
   constructor() {
     this.initializeCircuitBreaker();
   }
 
   private initializeCircuitBreaker() {
-    const options = {
+    const options: CircuitBreakerOptions = {
       timeout: 10000,
       errorThresholdPercentage: 50,
       resetTimeout: 30000,
@@ -20,8 +43,9 @@ export class CircuitBreakerService {
       volumeThreshold: 5,
     };
 
-    this.circuitBreaker = new CircuitBreaker(
-      this.executeRequest.bind(this),
+    const CircuitBreakerCtor = Opossum as unknown as CircuitBreakerConstructor;
+    this.circuitBreaker = new CircuitBreakerCtor(
+      (requestFunction) => this.executeRequest(requestFunction),
       options,
     );
 
@@ -42,9 +66,9 @@ export class CircuitBreakerService {
     });
   }
 
-  private async executeRequest<T>(
-    requestFunction: () => Promise<T>,
-  ): Promise<T> {
+  private async executeRequest(
+    requestFunction: () => Promise<unknown>,
+  ): Promise<unknown> {
     return requestFunction();
   }
 
@@ -60,14 +84,5 @@ export class CircuitBreakerService {
       : this.circuitBreaker.halfOpen
         ? 'HALF_OPEN'
         : 'CLOSED';
-  }
-
-  getStats() {
-    return {
-      state: this.getCircuitState(),
-      failures: this.circuitBreaker.stats.failures,
-      successes: this.circuitBreaker.stats.successes,
-      rejects: this.circuitBreaker.stats.rejects,
-    };
   }
 }

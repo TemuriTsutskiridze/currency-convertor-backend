@@ -1,10 +1,13 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
-import { AxiosResponse } from 'axios';
+import { AxiosResponse, AxiosError } from 'axios';
+import { firstValueFrom, retry, catchError, throwError, timer } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { CurrencyCodesService } from './currency-codes.service';
 import { ConvertCurrencyDto } from './dto/convert-currency.dto';
 import { CurrencyResponseDto } from './dto/currency-response.dto';
-import { firstValueFrom } from 'rxjs';
+import { ErrorHandlingService } from './error-handling.service';
+import { CircuitBreakerService } from './circuit-breaker.service';
 
 interface ExchangeRate {
   currencyCodeA: number;
@@ -17,9 +20,14 @@ interface ExchangeRate {
 
 @Injectable()
 export class CurrencyService {
+  private readonly logger = new Logger(CurrencyService.name);
+  private readonly MAX_RETRIES = 3;
+
   constructor(
     private readonly httpService: HttpService,
     private readonly currencyCodesService: CurrencyCodesService,
+    private readonly circuitBreakerService: CircuitBreakerService,
+    private readonly errorHandlingService: ErrorHandlingService,
   ) {}
 
   async convertCurrency(
@@ -47,21 +55,54 @@ export class CurrencyService {
 
   private async getExchangeRates(): Promise<ExchangeRate[]> {
     try {
-      const response: AxiosResponse<ExchangeRate[]> = await firstValueFrom(
-        // TODO: fix ts errors later
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-        this.httpService.get<ExchangeRate[]>(
-          'https://api.monobank.ua/bank/currency',
-        ),
+      return await this.circuitBreakerService.executeWithCircuitBreaker(() =>
+        this.fetchRatesWithRetry(),
       );
-      return response.data;
     } catch (error) {
-      console.log(error);
+      this.errorHandlingService.logError(
+        error as AxiosError,
+        'Get exchange rates',
+      );
+
+      if (this.circuitBreakerService.getCircuitState() === 'OPEN') {
+        throw new HttpException(
+          'Service is temporarily unavailable, please try again later...',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
       throw new HttpException(
         'Failed to fetch exchange rates',
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
+  }
+
+  private async fetchRatesWithRetry(): Promise<ExchangeRate[]> {
+    return firstValueFrom(
+      this.httpService
+        .get<ExchangeRate[]>('https://api.monobank.ua/bank/currency')
+        .pipe(
+          retry({
+            count: this.MAX_RETRIES,
+            delay: (error, retryCount) => {
+              if (!this.errorHandlingService.isRetryableError(error)) {
+                return throwError(() => error);
+              }
+
+              const delay = this.errorHandlingService.getRetryDelay(retryCount);
+              this.logger.warn(
+                `Retrying request... Attempt #${retryCount} in ${delay}ms`,
+              );
+              return timer(delay);
+            },
+          }),
+          catchError((error: AxiosError) => {
+            this.errorHandlingService.logError(error, 'Fetch exchange rates');
+            return throwError(() => error);
+          }),
+        ),
+    ).then((response) => response.data);
   }
 
   private getExchangeRate(
